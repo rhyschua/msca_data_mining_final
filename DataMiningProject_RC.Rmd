@@ -1,0 +1,400 @@
+---
+title: "Social Determinants of Health in Chicago"
+author: "Rhys Chua, Megha Kilaru, Rachel Kamienski & Thomas Troshynski"
+date: "August 29, 2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r warning=FALSE, message=FALSE}
+library(dplyr)
+library(tidyr)
+library(magrittr)
+library(poLCA)
+library(ggplot2)
+library(caret)
+library(AUC)
+library(rpart)
+library(gains)
+```
+
+# Introduction
+Social determinants of health (SDOH) critically impact healthcare access and outcomes. We hypothesized that census tracts with disadvantageous SDOH and a high violent crime rate have greater prevalence of hypertension. We performed k-means clustering based on SDOH variables to explore different clusters of neighborhood in Chicacgo. Then a classification tree model and logistic regression with hypertension being the outcome variable. Lastly, we performed a cluster-wise regression to identify numbers of clusters we need to achieve an optimal r squared value.\
+
+## Data Setup
+```{r}
+SDOH_CHI <- read.csv("~/Desktop/Summer 2019/Data Mining/group proj/sdoh/data/sdoh_final_data.csv")
+
+SDOH_CHI <- SDOH_CHI %>%
+  filter(!e_totpop == "0") %>%
+  filter(!EP_POV == "-999")
+
+## Imputed means for missing values
+vcrime_r16.imp.mean <- ifelse(is.na(SDOH_CHI$vcrime_r16), mean(SDOH_CHI$vcrime_r16, na.rm=TRUE), SDOH_CHI$vcrime_r16)
+```
+
+# K-Means Analysis
+## Data Prep
+```{r}
+SDOHChicago <- data.frame (SDOH_CHI$EP_POV, SDOH_CHI$EP_UNEMP, SDOH_CHI$EP_PCI, SDOH_CHI$EP_NOHSDP, SDOH_CHI$EP_AGE65, SDOH_CHI$EP_AGE17, SDOH_CHI$EP_DISABL, SDOH_CHI$EP_SNGPNT, SDOH_CHI$EP_MINRTY, SDOH_CHI$EP_LIMENG, SDOH_CHI$EP_MUNIT, SDOH_CHI$EP_MOBILE, SDOH_CHI$EP_CROWD, SDOH_CHI$EP_NOVEH, SDOH_CHI$EP_GROUPQ,vcrime_r16.imp.mean)
+
+names(SDOHChicago) <- c("EP_POV", "EP_UNEMP", "EP_PCI", "EP_NOHSDP", "EP_AGE65", "EP_AGE17", "EP_DISABL", "EP_SNGPNT", "EP_MINRTY", "EP_LIMENG", "EP_MUNIT", "EP_MOBILE", "EP_CROWD", "EP_NOVEH", "EP_GROUPQ", "vcrime_r16.imp.mean")
+```
+
+## K-Means Model
+```{r}
+smp_size <- floor(0.70 * nrow(SDOHChicago))
+
+set.seed(123)
+train_ind <- sample(seq_len(nrow(SDOHChicago)), size = smp_size)
+
+train <- SDOHChicago[train_ind, ]
+test <- SDOHChicago[-train_ind, ]
+
+
+VAF <- numeric()
+for(i in 2:10){
+  temp = kmeans(scale(train),centers=i,nstart=50)
+  VAF[i] = temp$betweenss/temp$totss
+}
+VAF[2:10]
+```
+
+## Scree Plot
+```{r}
+plot(2:10,VAF[2:10], type="b",
+     xlab = "Number of Clusters",
+     ylab = "VAF")
+```
+
+## Cluster Creation 
+```{r}
+train.4clust <- kmeans(scale(train), centers=4, nstart=50)
+train.4clust
+
+train.3clust <- kmeans(scale(train), centers=3, nstart=50)
+train.3clust
+
+train.2clust <- kmeans(scale(train), centers=2, nstart=50)
+train.2clust
+
+train.5clust <- kmeans(scale(train), centers=5, nstart=50)
+train.5clust
+```
+
+## Four Clusters
+```{r}
+#Poverty Rate vs. Unemployment Rate
+plot(train[,1],train[,2],xlab="POV", ylab="UNEMP", main="Poverty Rate vs. Unemployment Rate (4 Clusters)", type="n")
+text(train[,1],train[,2], col=train.4clust$cluster+1)
+
+#Poverty Rate vs. Crime Rate
+plot(train[,1],train[,16],xlab="POV", ylab="Crime Rate", main="Poverty Rate vs. Crime Rate (4 Clusters)", type="n")
+text(train[,1],train[,16], col=train.4clust$cluster+1)
+
+#Poverty Rate vs Minority Rate
+plot(train[,1],train[,9],xlab="POV", ylab="Minority Rate", main="Poverty Rate vs. Minority Rate (4 Clusters)", type="n")
+text(train[,1],train[,9], col=train.4clust$cluster+1)
+
+#PCI vs Crime Rate
+plot(train[,3],train[,16],xlab="PCI", ylab="Crime Rate", main="Per Capita Income vs. Crime Rate (4 Clusters)", type="n")
+text(train[,3],train[,16], col=train.4clust$cluster+1)
+```
+
+## Three Clusters
+```{r}
+#Poverty Rate vs. Unemployment Rate
+plot(train[,1],train[,2],xlab="POV", ylab="UNEMP", main="Poverty Rate vs. Unemployment Rate (3 Clusters)", type="n")
+text(train[,1],train[,2], col=train.3clust$cluster+1)
+
+#Poverty Rate vs. Crime Rate
+plot(train[,1],train[,16],xlab="POV", ylab="Crime Rate", main="Poverty Rate vs. Crime Rate (3 Clusters)", type="n")
+text(train[,1],train[,16], col=train.3clust$cluster+1)
+
+#Poverty Rate vs Minority Rate
+plot(train[,1],train[,9],xlab="POV", ylab="Minority Rate", main="Poverty Rate vs. Minority Rate (3 Clusters)", type="n")
+text(train[,1],train[,9], col=train.3clust$cluster+1)
+
+#PCI vs Crime Rate
+plot(train[,3],train[,16],xlab="PCI", ylab="Crime Rate", main="Per Capita Income vs. Crime Rate (3 Clusters)", type="n")
+text(train[,3],train[,16], col=train.3clust$cluster+1)
+```
+
+## Two Clusters
+```{r}
+#Poverty Rate vs. Unemployment Rate
+plot(train[,1],train[,2],xlab="POV", ylab="UNEMP", main="Poverty Rate vs. Unemployment Rate (2 Clusters)", type="n")
+text(train[,1],train[,2], col=train.2clust$cluster+1)
+
+#Poverty Rate vs. Crime Rate
+plot(train[,1],train[,16],xlab="POV", ylab="Crime Rate", main="Poverty Rate vs. Crime Rate (2 Clusters)", type="n")
+text(train[,1],train[,16], col=train.2clust$cluster+1)
+```
+
+## Test Data
+```{r}
+train_centers <- train.4clust$centers
+test.4clust=kmeans(scale(test),centers=train_centers,nstart=1)
+test.4clust$centers #cluster centroids
+test.4clust$size #cluster sizes
+test.4clust$betweenss/test.4clust$totss*100 #VAF
+
+train.4clust$centers
+train.4clust$size
+train.4clust$betweenss/train.4clust$totss*100 #VAF
+
+Full.4cluster =kmeans(scale(SDOHChicago), centers=train_centers, nstart=1)
+Full.4cluster
+
+SDOHChi16_Clusters <- data.frame(SDOH_CHI$geoid10, Full.4cluster$cluster)
+names(SDOHChi16_Clusters) <- c("Census_Tract", "Cluster") 
+
+#download clusters
+
+#write.csv(SDOHChi16_Clusters,"C:/Users/Megha/Documents/MScA/Summer 2019/Data Mining Principles/Final Project/SDOHChi2016_Clusters.csv", row.names = FALSE)
+
+```
+
+# Classification Analysis
+## Data Prep
+```{r}
+SDOH_CHI$vcrime_r16.imp.mean <- ifelse(is.na(SDOH_CHI$vcrime_r16), mean(SDOH_CHI$vcrime_r16, na.rm=TRUE), SDOH_CHI$vcrime_r16)
+
+quantile(SDOH_CHI$final_htn_num_2016_r, na.rm = TRUE)
+
+SDOH_CHI$final_htn_num_2016_q <- ifelse(SDOH_CHI$final_htn_num_2016_r < 0.35,0,ifelse(SDOH_CHI$final_htn_num_2016_r >=0.35,1,NA))
+
+SDOH_CHI_CLASSIFICATION <- SDOH_CHI[,c(15:29,84:85)]
+SDOH_CHI_CLASSIFICATION$final_htn_num_2016_q <- as.factor(SDOH_CHI$final_htn_num_2016_q)
+SDOH_CHI_CLASSIFICATION <- na.omit(SDOH_CHI_CLASSIFICATION)
+```
+
+## Split Data Train:Test (70:30)
+```{r}
+set.seed(123)
+trainIndex <- sample(1:nrow(SDOH_CHI_CLASSIFICATION), size = 0.7 * nrow(SDOH_CHI_CLASSIFICATION))
+train.data.classification <- SDOH_CHI_CLASSIFICATION[trainIndex,]
+test.data.classification <- SDOH_CHI_CLASSIFICATION[-trainIndex,]
+```
+
+## Classification Tree
+```{r}
+set.seed(123)
+##classification tree using all variables
+ctree_1 <- rpart(formula=final_htn_num_2016_q ~ EP_POV + EP_UNEMP + EP_NOHSDP + EP_AGE65 + EP_AGE17 + EP_DISABL + EP_SNGPNT + EP_MINRTY + EP_LIMENG + EP_MUNIT + EP_MOBILE + EP_CROWD + EP_NOVEH + vcrime_r16.imp.mean,data=train.data.classification,control=rpart.control(cp=0,minsplit=30,xval=10, maxsurrogate=0))
+
+printcp(ctree_1)
+
+par(mai=c(0.1,0.1,0.1,0.1))
+plot(ctree_1,main="Classification Tree: 2016 htn Q",col=3, compress=TRUE, branch=0.2,uniform=TRUE)
+text(ctree_1,cex=0.6,col=4,use.n=TRUE,fancy=TRUE,fwidth=0.4,fheight=0.4,bg=c(5))
+```
+
+### Pruned Tree 
+```{r}
+## use cp with lowest xerror
+set.seed(123)
+ctree_1_prune <- rpart(formula=final_htn_num_2016_q ~ EP_POV + EP_UNEMP + EP_NOHSDP + EP_AGE65 + EP_AGE17 + EP_DISABL + EP_SNGPNT + EP_MINRTY + EP_LIMENG + EP_MUNIT + EP_MOBILE + EP_CROWD + EP_NOVEH + vcrime_r16.imp.mean, data = train.data.classification, control = rpart.control(cp=0.0111940))
+par(mai=c(0.1,0.1,0.1,0.1))
+plot(ctree_1_prune,main="Classification Tree: 2016 htn Q",col=3, compress=TRUE, branch=0.2,uniform=TRUE)
+text(ctree_1_prune,cex=0.6,col=4,use.n=TRUE,fancy=TRUE,fwidth=0.4,fheight=0.4,bg=c(5))
+```
+
+### Confusion Matrices
+```{r}
+require(rpart)
+table(train.data.classification[, "final_htn_num_2016_q"] ,predict(ctree_1_prune, type = "class"), dnn = c("Actual Group", "Predicted Group"))
+
+##test data
+table(test.data.classification[,"final_htn_num_2016_q"],predict(ctree_1_prune, type = "class", newdata = test.data.classification), dnn = c("Actual Group", "Predicted Group"))
+```
+
+# Logistic Regression
+## Logistic Regression on Full Model and Stepwise Regression
+
+```{r}
+## USE DATA SDOH_CHI_CLASSIFICATION
+set.seed(123)
+##step wise algorithm then log reg
+logreg_train <- glm(formula=final_htn_num_2016_q ~ EP_POV + EP_UNEMP + EP_NOHSDP + EP_AGE65 + EP_AGE17 + EP_DISABL + EP_SNGPNT + EP_MINRTY + EP_LIMENG + EP_MUNIT + EP_MOBILE + EP_CROWD + EP_NOVEH + vcrime_r16.imp.mean, data = train.data.classification, family = binomial(link = logit))
+summary(logreg_train)
+step(logreg_train, direction = "both")
+
+```
+
+## Logistic Regression on Model with Best AIC Score
+```{r}
+set.seed(123)
+##
+logreg_best_train <- glm(formula = final_htn_num_2016_q ~ EP_POV + EP_UNEMP + EP_AGE65 + 
+    EP_MINRTY + vcrime_r16.imp.mean, family = binomial(link = logit), 
+    data = train.data.classification)
+
+summary(logreg_best_train)
+```
+
+## Confusion Matrices
+```{r}
+##confusion matrix using lowest AIC model
+best_train_model <- logreg_best_train$fitted.values
+best_train_model[best_train_model>=0.5]=1
+best_train_model[best_train_model<0.5]=0
+table(train.data.classification$final_htn_num_2016_q,best_train_model, dnn = c("Actual Group", "Predicted Group"))
+
+
+###test model and confusion matrix
+logreg_best_test <- predict(logreg_best_train, 
+                            newdata = test.data.classification, type = "response")
+logreg_best_test[logreg_best_test>=0.5]=1
+logreg_best_test[logreg_best_test<0.5]=0
+table(test.data.classification$final_htn_num_2016_q,logreg_best_test, 
+      dnn = c("Actual Group", "Predicted Group"))
+```
+
+## Gains Chart
+```{r}
+##gains
+gains(as.numeric(test.data.classification$final_htn_num_2016_q)-1,logreg_best_test,10)
+plot(gains(as.numeric(test.data.classification$final_htn_num_2016_q)-1,logreg_best_test,10))
+```
+
+### ROC Curve
+```{r}
+test_glm <- glm(formula = final_htn_num_2016_q ~ EP_POV + EP_UNEMP + EP_AGE65 + 
+    EP_MINRTY + vcrime_r16.imp.mean, family = binomial(link = logit), 
+    data = test.data.classification)
+summary(test_glm)
+plot(roc(test_glm$fitted.values, test.data.classification$final_htn_num_2016_q))
+text(x=0.72, y=0.6, labels = paste("AUC= 0.69"))
+```
+
+# Cluster Regression
+
+## Clustreg Function
+```{r}
+clustreg=function(dat,k,tries,sed,niter){
+
+set.seed(sed)
+dat=as.data.frame(dat)
+rsq=rep(NA,niter)
+res=list()
+rsq.best=0
+    for(l in 1:tries) {
+
+	c = sample(1:k,nrow(dat),replace=TRUE)
+	yhat=rep(NA,nrow(dat))
+	for(i in 1:niter) {		
+		resid=pred=matrix(0,nrow(dat),k)
+		for(j in 1:k){	
+			pred[,j]=predict(glm(dat[c==j,],family="gaussian"),newdata=dat)		
+			resid[,j] = (pred[,j]-dat[,1])^2
+		}
+
+	c = apply(resid,1,fun.index.rowmin)
+	for(m in 1:nrow(dat)) {yhat[m]=pred[m,c[m]]}
+	rsq[i] = cor(dat[,1],yhat)^2	
+	#print(rsq[i])
+	}
+	
+	if(rsq[niter] > rsq.best) {	
+		rsq.best=rsq[niter]
+		l.best=l
+            c.best=c
+		yhat.best=yhat
+		}
+    }
+
+    for(i in k:1) res[[i]]=summary(lm(dat[c.best==i,]))
+	
+return(list(data=dat,nclust=k,tries=tries,seed=sed,rsq.best=rsq.best,number.loops=niter, Best.try=l.best,cluster=c.best,results=res))
+}
+fun.index.rowmin=function(x) {
+    
+    z=(1:length(x)) [x == min(x)]
+    if(length(z) > 1) { z=sample(z,1)}
+    return ( z ) }
+```
+
+## Cluster Regression
+```{r}
+set.seed(123)
+dataTrain_clust1 <- clustreg(train.data.classification, 1, 1, 581, 1)
+dataTrain_clust2 <- clustreg(train.data.classification, 2, 2, 581, 10)
+dataTrain_clust3 <- clustreg(train.data.classification, 3, 2, 581, 10)
+```
+
+## Best R Squared from Train 
+```{r}
+##best r square
+rsq_clust1 <- dataTrain_clust1$rsq.best
+rsq_clust2 <- dataTrain_clust2$rsq.best
+rsq_clust3 <- dataTrain_clust3$rsq.best
+
+rsq_train <- c(rsq_clust1, rsq_clust2, rsq_clust3)
+plot(1:3, rsq_train, main = "Scree Plot for Cluster-Wise Regression",
+     xlab = "Number of Clusters", ylab = "R Squared", type = "b", col = "11")
+```
+
+## Clustreg Predict Function
+```{r}
+clustreg.predict=function(results,newdat){
+
+	yhat=rep(NA,nrow(newdat))
+	resid=pred=matrix(0,nrow(newdat),length(table(results$cluster)))
+		
+		for(j in 1:length(table(results$cluster))){			
+			pred[,j]=predict(glm(results$data[results$cluster==j,],family="gaussian"),newdata=newdat)		
+			resid[,j] = (pred[,j]-newdat[,1])^2
+		}
+
+	c = apply(resid,1,fun.index.rowmin)
+	for(m in 1:nrow(newdat)) {yhat[m]=pred[m,c[m]]}
+	rsq = cor(newdat[,1],yhat)^2	
+
+return(list(results=results,newdata=newdat,cluster=c,yhat=yhat,rsq=rsq))
+
+}
+```
+
+## Train and Test R Squared Comparison
+```{r}
+##test data
+dataTest_clust1 <- clustreg.predict(dataTrain_clust1, test.data.classification)
+dataTest_clust2 <- clustreg.predict(dataTrain_clust2, test.data.classification)
+dataTest_clust3 <- clustreg.predict(dataTrain_clust3, test.data.classification)
+
+
+##diff in r square
+rsq_test <- c(dataTest_clust1$rsq, dataTest_clust2$rsq, dataTest_clust3$rsq)
+
+rsq <- cbind.data.frame(rsq_train, rsq_test)
+rsq$percent_diff <- (rsq$rsq_train - rsq$rsq_test) / rsq$rsq_train
+rsq
+```
+
+# Results
+
+## K Means
+Cluster 3 and 4 has the highest rates of hypertension which represents the majority of South Chicago, a few neighborhoods in far North Chicago, and West Chicago.
+
+## Logistic Regression
+A unit increase in unemployment rate increases the odds for having hypertension by 4%.\
+Having a minority status increases the odds of having hypertension by 2%.\
+A unit increase in violent crime, the odds for having hypertension increases by 1%.\
+An increase in age decreases the odds of having hypertension by 4%.\
+69% Accuracy Train, 69% Accuracy Test
+
+## Classification Tree
+Violent crime and minority population in the census tract are the most important factors when predicting hypertension rates.\
+ 78% Accuracy Train, 66% Accuracy Test
+
+## Cluster Wise Regression
+Splitting the data into a group of 3 gives us an optimal r squared value.\
+Train R2 0.77 and Test R2 0.66
+
+
+
+
